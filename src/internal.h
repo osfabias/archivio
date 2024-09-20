@@ -1,39 +1,48 @@
+/**
+ * @file internal.h
+ * @brief The header of the boolernal Archivio functions.
+ *
+ * This file contains type and function definitions of the boolernal
+ * OS-specific Archivio functions.
+ *
+ * @copyright Copyright (c) 2023-2024 Osfabias
+ * @license Licensed under the Apache License, Version 2.0.
+ */
 #pragma once
+#include <stdarg.h>  // variadic arguments
+#include <stdbool.h> // bool
 
-#include <stdarg.h>
-#include <stdint.h>
+#ifdef _WIN32
+#include <windows.h>
+#define ROUTINE_PRFX WIN_API
+#define ROUTINE_PARAMS LPVOID arg
+#define ROUTINE_PARAMS_UNUSED (void)(arg);
+typedef LPTHREAD_START_ROUTINE threadRoutine;
+#else
+#define ROUTINE_PRFX   void*
+#define ROUTINE_PARAMS void *arg
+#define ROUTINE_PARAMS_UNUSED (void)(arg);
+typedef void*(*threadRoutine)(void*);
+#endif
 
-#include "arch/arch.h"
+typedef struct _thread _thread_t;
+typedef struct _mutex  _mutex_t;
+typedef struct _cond   _cond_t;
 
-typedef struct File File;
-typedef struct Thread Thread;
-typedef struct Mutex Mutex;
-typedef struct Cond Cond;
+bool _dir_is_exists(const char *path);
+bool _mkdir(const char *path);
 
-void* memoryAlloc(uint64_t size);
-void  memoryFree(void *block);
-void  memoryCopy(void *dst, const void *src, uint64_t size);
-void  memoryMove(void *dst, const void *src, uint64_t size);
+_thread_t* _thread_create(threadRoutine func);
+bool    _thread_destroy(_thread_t *thread);
+bool    _thread_wait(_thread_t *thread);
+bool    _thread_kill(_thread_t *thread);
 
-void formatString(const char *format, ArchLogLevel level,
-		  char *out, uint64_t size);
+_mutex_t* _mutex_create(void);
+bool   _mutex_destroy(_mutex_t *mutex);
+bool   _mutex_lock(_mutex_t *mutex);
+bool   _mutex_unlock(_mutex_t *mutex);
 
-void print(const char *message);
-
-File* fileCreate(const char *fileNameFormat, const char *pathFormat);
-void  fileClose(File *file);
-void  fileWrite(File *file, const char *message);
-
-Thread* threadCreate(void*(*func)(void *arg), void *arg);
-void    threadDestroy(Thread *thread);
-void    threadWait(Thread *thread);
-
-Mutex* mutexCreate();
-void   mutexDestroy(Mutex *mutex);
-void   mutexLock(Mutex *mutex);
-void   mutexUnlock(Mutex *mutex);
-
-Cond* condCreate();
-void  condWait(Cond *cond, Mutex *mutex);
-void  condSignal(Cond *cond);
-void  condDestroy(Cond *cond);
+_cond_t* _cond_create(void);
+bool  _cond_wait(_cond_t *cond, _mutex_t *mutex);
+bool  _cond_signal(_cond_t *cond);
+bool  _cond_destroy(_cond_t *cond);

@@ -1,29 +1,63 @@
 /**
  * @file arch.h
- * @brief The header of the Archivio API
+ * @brief The header of the public Archivio API.
  *
- * Copyright (c) 2023-2024 Osfabias
+ * @author Ilya Buravov
+ * @date 21.09.2024
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @copyright Copyright (c) 2023-2024 Osfabias
+ * @license Licensed under the Apache License, Version 2.0.
  */
 #pragma once
 
 #include <stdint.h>
+#include <stdarg.h>
+#include <stdbool.h>
+
+/**
+ * @brief Archivio initialization info.
+ *
+ * @var arch_init_info::max_entry_Count
+ * The max number of log entries to be stored at once. If the
+ * number is 0 the behaviour of the arch_logger_create() function is
+ * undefined.
+ */
+typedef struct arch_init_info {
+  uint32_t max_entry_count;
+} arch_init_info_t;
 
 /**
  * @brief Log level.
+ *
+ * @var arch_log_level:ARCH_LOG_LEVEL_TRACE
+ * Log level used to provide a low level info, that can be useful for 
+ * developers for debugging or tracking program behaviour.
+ *
+ * @var arch_log_level:ARCH_LOG_LEVEL_DEBUG
+ * Log level used to provide useful information about the program
+ * during the debugging process.
+ *
+ * @var arch_log_level:ARCH_LOG_LEVEL_INFO
+ * Log level used to notify a user or a developer that program
+ * was executed successfully.
+ *
+ * @var arch_log_level:ARCH_LOG_LEVEL_WARN
+ * Log level used for messages that warns a user or a developer
+ * about the potential unwanted or undefined behaviour.
+ *
+ * @var arch_log_level:ARCH_LOG_LEVEL_ERROR
+ * Log level used to notify a user or a developer that the program
+ * wasn't executed successfully.
+ *
+ * @var arch_log_level:ARCH_LOG_LEVEL_FATAL
+ * Log level used to notify a user or a developer that the program
+ * faced an error, that couldn't be fixed or ignored, so the program
+ * have to be terminated.
+ *
+ * @var arch_log_level_t:ARCH_LOG_LEVEL_MAX_ENUM
+ * For internal use by the Archivio.
  */
-typedef enum ArchLogLevel {
+typedef enum arch_log_level {
   ARCH_LOG_LEVEL_TRACE,
   ARCH_LOG_LEVEL_DEBUG,
   ARCH_LOG_LEVEL_INFO,
@@ -32,139 +66,147 @@ typedef enum ArchLogLevel {
   ARCH_LOG_LEVEL_FATAL,
 
   ARCH_LOG_LEVEL_MAX_ENUM
-} ArchLogLevel;
+} arch_log_level_t;
 
 /**
  * @brief Logger creation info.
  *
- * @var ArchLoggerCreateInfo::name
- * A name of the logger, that can be displayed
- * later using "%l". Leave as NULL if you don't
- * want the logger to have a name.
+ * @var arch_logger_create_info::pathFormat
+ * A format that describes the location where's the log file will
+ * be created. This path should not include the log file's name.
+ * Leave as NULL if you want to put file at the default "./logs/"
+ * directory. If the passed path doesn't end with the '/' symbol
+ * the behaviour is undefined.
  *
- * @var ArchLoggerCreateInfo::pathFormat
- * A format that describes the location where's the
- * log file will be created. This path should not
- * include the log file's name. Leave as NULL if you
- * want to put file at the default "./logs/" directory.
- * If the passed path doesnt end with the '/' symbol
- * the archLoggerCreate() function will return null
- * pointer.
+ * @var arch_logger_create_info::fileNameFormat
+ * A sequence of characters that describes how log file will be
+ * named. Leave as NULL if you don't want to write messages to a file.
  *
- * @var ArchLoggerCreateInfo::fileNameFormat
- * A format that describes how log file will be
- * named. Leave as NULL if you don't want to write
- * messages to a file.
+ * @var arch_logger_create_info::messageFormats
+ * An array of sequences of characters that describes how log messages
+ * will be formatted before they displayed in the console. If the passed
+ * value or at least one of the elements in an array is a null pointer 
+ * the behaviour of the arch_logger_create() function is undefined.
  *
- * @car ArchLoggerCreateInfo::messageFormat
- * A format that describes how log messages
- * will be formatted. If the passed value will
- * be a null pointer the archLoggerCreate function
- * will return a null pointer.
+ * @var arch_logger_create_info::fileMessageFormats
+ * An array of sequences of characters that describes how log messages
+ * will be formatted before they written to a file. If the passed
+ * value or at least one of the elements in an array is a null pointer 
+ * the behaviour of the arch_logger_create() function is undefined.
  *
- * @var ArchLoggerCreateInfo::level
- * The minimum level of log messages to show to
- * the console, besides the log level all mesages
- * will be written to a file. If the passed value isn't
- * presented in ArchLogLevel enum the archLoggerCreate()
- * will return a null pointer.
+ * @var arch_logger_create_info::level
+ * The minimum level of log messages to show in the console, besides
+ * the log level all messages will be written to a file. If the passed
+ * value isn't presented in the arch_log_level_t enum the behaviour of 
+ * the arch_logger_create() function is undefined.
  */
-typedef struct ArchLoggerCreateInfo {
-  const char   *name;
-  const char   *pathFormat;
-  const char   *fileNameFormat;
-  const char   *messageFormat;
-  ArchLogLevel  level;
-} ArchLoggerCreateInfo;
+typedef struct arch_logger_create_info {
+  const char   *path_format;
+  const char   *filename_format;
+  const char   *msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
+  const char   *file_msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
+  arch_log_level_t  level;
+} arch_logger_create_info_t;
 
 /**
- * @brief Extendeed logger creation info.
- *
- * @var ArchLoggerCreateInfoEx::name
- * A name of the logger, that can be displayed
- * later using "%l". Leave as NULL if you don't
- * want the logger to have a name.
- *
- * @var ArchLoggerCreateInfoEx::pathFormat
- * A format that describes the location where's the
- * log file will be created. This path should not
- * include the log file's name. Leave as NULL if you
- * want to put file at the default "./logs/" directory.
- * If the passed path doesnt end with the '/' symbol
- * the archLoggerCreateEx() function will return null
- * pointer.
- *
- * @var ArchLoggerCreateInfoEx::fileNameFormat
- * A format that describes how log file will be
- * named. Leave as NULL if you don't want to write
- * messages to a file.
- *
- * @car ArchLoggerCreateInfoEx::messageFormats
- * An array of formats for each log level that
- * describe how log messages will be formatted.
- * If the passed value is a null pointer the
- * archLoggerCreateEx() function will return a
- * null pointer.
- *
- * @var ArchLoggerCreateInfoEx::level
- * The minimum level of log messages to show to the
- * console, besides the log level all mesages will be
- * written to a file. If the passed value isn't presented
- * in the ArchLogLevel enum the archLoggerCreateEx()
- * function will return a null pointer.
+ * @brief An Archivio logger.
  */
-typedef struct ArchLoggerCreateInfoEx {
-  const char   *name;
-  const char   *pathFormat;
-  const char   *fileNameFormat;
-  const char   *messageFormats[ARCH_LOG_LEVEL_MAX_ENUM];
-  ArchLogLevel  level;
-} ArchLoggerCreateInfoEx;
+typedef struct arch_logger arch_logger_t;
 
 /**
- * @brief An Archivio logger handle.
- */
-typedef struct ArchLogger ArchLogger;
-
-/**
- * @brief Creates a logger instance.
- * @param createInfo A pointer to an ArchLoggerCreateInfo struct.
- * @return Returns a pointer to an Archivio logger
- *         instance if the creation was successfull,
- *         otherwise returns 0.
- */
-ArchLogger* archLoggerCreate(const ArchLoggerCreateInfo *info);
-
-/**
- * @brief Creates a logger instance.
+ * @brief Initializes Archivio.
  *
- * Use this function to create a logger if you want
- * more control of message formats and styles.
+ * Initializes the Archivio state and starts an Archivio logging routine
+ * in the separate thread, that will wait for the entries to process.
+ * If in the logging process some error ocqured the thread will exit.
+ * You can check if the thread is still alive using the archIsAlive()
+ * function. This function should be called before any other Archivio
+ * functions are called, otherwise the behaviour of the other functions
+ * is undefined.
  *
- * @param createInfo A pointer to an ArchLoggerCreateInfoEx struct.
- * @return Returns a pointer to an Archivio logger
- *         instance if the creation was successfull,
- *         otherwise returns 0.
+ * @param info A pointer to the arch_init_info_t struct.
+ *
+ * @return Returns true on successful initialization, otherwise returns false.
  */
-ArchLogger* archLoggerCreateEx(const ArchLoggerCreateInfoEx *info);
+bool arch_init(const arch_init_info_t *info);
 
 /**
- * @brief Destroy logger.
- * @param logger A pointer to an existing Archivio logger instance.
+ * @brief Terminates Archivio.
+ *
+ * Waits for the Archivio logging thread to finish processing queued
+ * entries and then terminates the Archivio state. This functions should
+ * be called after all Archivio logger instances where destroyed,
+ * otherwise the behaviour is undefined.
  */
-void archLoggerDestroy(ArchLogger *logger);
+void arch_terminate(void);
+
+/**
+ * @brief Returns whether an Archivio logging routine is alive or not.
+ *
+ * @return Returns true if the Archivio logging thread is alive, otherwise
+ *         returns false.
+ */
+bool arch_is_alive(void);
+
+/**
+ * @brief Creates an Archivio logger instance.
+ *
+ * @param createInfo A pointer to an arch_logger_create_info_t struct.
+ *
+ * @return Returns a pointer to an Archivio logger instance.
+ */
+arch_logger_t* arch_logger_create(const arch_logger_create_info_t *info);
+
+/**
+ * @brief Destroys logger.
+ *
+ * If passed pointer to an Archivio logger is a null pointer
+ * the behaviour is undefined.
+ * 
+ * @param logger A pointer to an Archivio logger instance. If the
+ *               passed pointer wasn't returned by the arch_logger_create()
+ *               function, the behaviour is undefined.
+ */
+void arch_logger_destroy(arch_logger_t *logger);
 
 /**
  * @brief Logs a message.
  *
- * If logging level is lower than current set logging level,
- * message wouldn't be displayed.
+ * If logging passed log level is lower than the logger log level,
+ * message wouldn't be displayed. If passed logger is a null handle
+ * it will cause a segmentation fault.
  *
- * @param logger A pointer to a logger instance.
- * @param level A logging level.
- * @param msg A message to print.
- * @param ... VA arguments.
+ * @param logger A pointer to an Archivio logger instance. If the
+ *               passed pointer wasn't returned by the arch_logger_create()
+ *               function, the behaviour is undefined.
+ * @param level  A log level of the message.
+ * @param msg    A pointer to a sequence of characters to print.
+ * @param ...    Variadic arguments.
+ *
+ * @return Returns true if log entry was successfully written,
+ *         otherwise returns false.
  */
-void archLog(ArchLogger *logger, ArchLogLevel level,
-             const char *message, ...);
+bool arch_log(arch_logger_t *logger, arch_log_level_t level,
+              const char *msg, ...);
+
+/**
+ * @brief Logs a message.
+ *
+ * If logging passed log level is lower than the logger log level,
+ * message wouldn't be displayed to the console, but still will be
+ * written to file (if logger instance has a file). If the passed
+ * logger is a null handle the behaviour is undefined.
+ *
+ * @param logger A pointer to an Archivio logger instance. If the
+ *               passed pointer wasn't returned by the arch_logger_create()
+ *               function, the behaviour is undefined.
+ * @param level  A log level of the message.
+ * @param msg    A pointer to a c-string to log.
+ * @param valist List of variadic arguments.
+ *
+ * @return Returns true if log entry was successfully written,
+ *         otherwise returns false.
+ */
+bool arch_logvl(arch_logger_t *logger, arch_log_level_t level,
+                const char *msg, va_list valist);
 

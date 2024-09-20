@@ -3,11 +3,11 @@ Archivio is a C library that provides a cross-platform multithreadead
 logging system for developers.
 
 Currently supported platforms:
+- Windows;
 - Linux;
 - MacOS.
 
 Platform to be supported (SOON):
-- Windows;
 - Android;
 - iOS.
 
@@ -40,7 +40,7 @@ You're done!
 
 ## Documentation
 ```shell
-# from opl/
+# from archivio/
 doxygen
 cd doc/html
 open index.html
