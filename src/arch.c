@@ -13,10 +13,10 @@
 #include <stdarg.h> // va_list and va_*() functions
 #include <string.h> // memcpy, memmove
 #include <stdlib.h> // malloc, free
-#include <stdint.h> // int types with constant sizes
 
-#include "arch/arch.h"
+#include "arch.h"
 #include "internal.h"
+#include "uthread/uthread.h"
 
 #define DEFAULT_PATH_FORMAT "./logs/"
 
@@ -24,85 +24,90 @@
 #define MAX_MESSAGE_LENGTH 512
 
 typedef struct _entry {
-  arch_logger_t   *logger;
-  arch_log_level_t level;
-  char             message[MAX_MESSAGE_LENGTH];
-  time_t           time;
-} _entry_t;
+  struct arch_logger *logger;
+  arch_log_level      level;
+  char                message[MAX_MESSAGE_LENGTH];
+  time_t              time;
+} _entry;
 
 struct arch_logger {
-  arch_log_level_t level;
+  arch_log_level level;
 
   char msg_formats[ARCH_LOG_LEVEL_MAX_ENUM][MAX_MESSAGE_LENGTH];
   char file_msg_formats[ARCH_LOG_LEVEL_MAX_ENUM][MAX_MESSAGE_LENGTH];
   FILE *fd;
 
-  uint8_t entry_count;
-  bool    destroy_requested;
+  int entry_count;
+  int destroy_requested;
 };
 
 static struct {
-  uint8_t   max_entry_count;
-  uint8_t   entry_count;
-  _entry_t *entries;
+  uint8_t max_entry_count;
+  uint8_t entry_count;
+  _entry  *entries;
 
-  _mutex_t  *mutex;
-  _cond_t   *cond;
-  _thread_t *thread;
+  ut_mutex_t  mutex;
+  ut_cond_t   cond;
+  ut_thread_t thread;
 
-  bool threadIsAlive;
-  bool _thread_killRequested;
+  int threadIsAlive;
+  int _thread_killRequested;
 } s_arch_state;
 
-ROUTINE_PRFX routine(ROUTINE_PARAMS);
+UT_ROUTINE_RETURN_TYPE routine(void *arg);
 
 FILE* _file_create(const char *filename_format, const char *path_format);
 
-bool _format_str(const char *format, time_t time, const char *msg,
+int _format_str(const char *format, time_t time, const char *msg,
                   char *out, size_t size);
 
-bool arch_init(const arch_init_info_t *info) {
-  s_arch_state.entry_count          = 0;
-  s_arch_state.max_entry_count       = info->max_entry_count;
+int arch_init(int max_entry_count) {
+  s_arch_state.entry_count     = 0;
+  s_arch_state.max_entry_count = max_entry_count;
 
-  s_arch_state.entries = malloc(sizeof(_entry_t) * info->max_entry_count);
+  s_arch_state.entries = malloc(sizeof(_entry) * max_entry_count);
   if (!s_arch_state.entries) { goto FAIL_ENTRIES; }
 
-  if (!(s_arch_state.cond   = _cond_create()))          { goto FAIL_COND;   }
-  if (!(s_arch_state.mutex  = _mutex_create()))         { goto FAIL_MUTEX;  }
-  if (!(s_arch_state.thread = _thread_create(routine))) { goto FAIL_THREAD; }
+  if (!ut_cond_create(&s_arch_state.cond))   { goto FAIL_COND; }
+  if (!ut_mutex_create(&s_arch_state.mutex)) { goto FAIL_MUTEX;  }
 
-  s_arch_state._thread_killRequested = false;
-  s_arch_state.threadIsAlive       = true;
+  if (!ut_thread_create(&s_arch_state.thread, routine, NULL)) {
+    goto FAIL_THREAD;
+  }
 
-  return true;
-FAIL_THREAD:  _thread_destroy(s_arch_state.thread);
-FAIL_MUTEX:   _mutex_destroy(s_arch_state.mutex);
-FAIL_COND:    _cond_destroy(s_arch_state.cond);
+  s_arch_state._thread_killRequested = 0;
+  s_arch_state.threadIsAlive       = 1;
+
+  return 1;
+FAIL_THREAD:  ut_thread_kill(s_arch_state.thread);
+FAIL_MUTEX:   ut_mutex_destroy(&s_arch_state.mutex);
+FAIL_COND:    ut_cond_destroy(&s_arch_state.cond);
 FAIL_ENTRIES: free(s_arch_state.entries);
-  return false;
+  return 0;
 }
 
 void arch_terminate(void) {
-  s_arch_state._thread_killRequested = true;
+  s_arch_state._thread_killRequested = 1;
 
   if (
     s_arch_state.entry_count == 0 &&
-    !_cond_signal(s_arch_state.cond)
+    !ut_cond_signal(&s_arch_state.cond)
   ) { return; }
 
-  if (!_thread_wait(s_arch_state.thread)) { return; }
+  if (!ut_thread_wait(s_arch_state.thread)) { return; }
 
-  _cond_destroy(s_arch_state.cond);
-  _mutex_destroy(s_arch_state.mutex);
-  _thread_destroy(s_arch_state.thread);
+  ut_cond_destroy(&s_arch_state.cond);
+  ut_mutex_destroy(&s_arch_state.mutex);
+  ut_thread_kill(s_arch_state.thread);
 
   free(s_arch_state.entries);
 }
 
-arch_logger_t* arch_logger_create(const arch_logger_create_info_t *info) {
-  arch_logger_t *logger;
-  if (!(logger = malloc(sizeof(arch_logger_t)))) { return NULL; }
+struct arch_logger* arch_logger_create(
+  const arch_logger_create_info_t *info
+) {
+  struct arch_logger *logger = malloc(sizeof(struct arch_logger));
+  if (!logger) { return NULL; }
 
   if (!info->filename_format) { goto SKIP_FILE_CREATION; }
 
@@ -140,43 +145,43 @@ SKIP_FILE_CREATION:
   return logger;
 }
 
-bool arch_is_alive(void) {
+int arch_is_alive(void) {
   return s_arch_state.threadIsAlive;
 }
 
-void arch_logger_destroy(arch_logger_t *logger) {
+void arch_logger_destroy(struct arch_logger* logger) {
   logger->destroy_requested = 1;
 }
 
-bool arch_log(arch_logger_t *logger, arch_log_level_t level,
+int arch_log(struct arch_logger *logger, arch_log_level level,
              const char *msg, ...) {
   va_list valist;
 
   va_start(valist, msg);
-  bool res = arch_logvl(logger, level, msg, valist);
+  int res = arch_logvl(logger, level, msg, valist);
   va_end(valist);
 
   return res;
 }
 
-bool arch_logvl(arch_logger_t *logger, arch_log_level_t level,
-                const char *msg, va_list valist) {
-  if (!_mutex_lock(s_arch_state.mutex)) { return false; }
+int arch_logvl(struct arch_logger *logger, arch_log_level level,
+               const char *msg, va_list valist) {
+  if (!ut_mutex_lock(&s_arch_state.mutex)) { return 0; }
 
   if (
     s_arch_state.entry_count == s_arch_state.max_entry_count &&
-    !_cond_wait(s_arch_state.cond, s_arch_state.mutex)
-  ) { return false; }
+    !ut_cond_wait(&s_arch_state.cond, &s_arch_state.mutex)
+  ) { return 0; }
 
-  _entry_t *entry  = s_arch_state.entries + s_arch_state.entry_count;
-  entry->level  = level;
-  entry->logger = logger;
+  _entry *entry  = s_arch_state.entries + s_arch_state.entry_count;
+  entry->level   = level;
+  entry->logger  = logger;
 
   // TODO: Figure out how to copy data from va_list
   // for future use (not pointers)
   char formattedMessage[MAX_MESSAGE_LENGTH];
   if (vsnprintf(formattedMessage, MAX_MESSAGE_LENGTH, msg, valist) < 0) {
-    return false;
+    return 0;
   }
   memcpy(entry->message, formattedMessage, MAX_MESSAGE_LENGTH);
 
@@ -186,16 +191,17 @@ bool arch_logvl(arch_logger_t *logger, arch_log_level_t level,
   ++logger->entry_count;
   ++s_arch_state.entry_count;
 
-  if (!_mutex_unlock(s_arch_state.mutex)) { return false; }
+  if (!ut_mutex_unlock(&s_arch_state.mutex)) { return 0; }
 
-  if (s_arch_state.entry_count == 1 && !_cond_signal(s_arch_state.cond)) {
-    return false;
-  }
+  if (
+    s_arch_state.entry_count == 1 &&
+    !ut_cond_signal(&s_arch_state.cond)
+  ) { return 0; }
 
-  return true;
+  return 1;
 }
 
-bool processEntry(_entry_t *e) {
+int _process_entry(_entry *e) {
   char outMessage[MAX_MESSAGE_LENGTH];
   if (!_format_str(
     e->logger->msg_formats[e->level],
@@ -205,7 +211,7 @@ bool processEntry(_entry_t *e) {
     MAX_MESSAGE_LENGTH
   )) { return 0; }
 
-  if (fputs(outMessage, stdout) == EOF) { return false; }
+  if (fputs(outMessage, stdout) == EOF) { return 0; }
 
   if (e->logger->fd) {
     char outMessage[MAX_MESSAGE_LENGTH];
@@ -215,28 +221,30 @@ bool processEntry(_entry_t *e) {
       e->message,
       outMessage,
       MAX_MESSAGE_LENGTH
-    )) { return false; }
+    )) { return 0; }
 
-    if (fputs(outMessage, e->logger->fd) == EOF) { return false; }
+    if (fputs(outMessage, e->logger->fd) == EOF) { return 0; }
   }
 
   return 1;
 }
 
-ROUTINE_PRFX routine(ROUTINE_PARAMS) {
+UT_ROUTINE_RETURN_TYPE routine(void *arg) {
   // suppress "Unused parameter" compiler warning
-  { ROUTINE_PARAMS_UNUSED }
+  (void)(arg);
 
-  _entry_t entry;
-  bool  skipEntry;
+  _entry entry;
+  int    skip_entry;
 
   while (1) {
-    if (!_mutex_lock(s_arch_state.mutex)) { return NULL; }
+    if (!ut_mutex_lock(&s_arch_state.mutex))
+      return NULL;
 
     if (s_arch_state.entry_count == 0) {
       if (s_arch_state._thread_killRequested) { break; }
 
-      if (!_cond_wait(s_arch_state.cond, s_arch_state.mutex)) { return NULL; }
+      if (!ut_cond_wait(&s_arch_state.cond, &s_arch_state.mutex))
+        return NULL;
 
       if (
         s_arch_state.entry_count == 0 &&
@@ -247,10 +255,10 @@ ROUTINE_PRFX routine(ROUTINE_PARAMS) {
     entry = s_arch_state.entries[0];
 
     if (entry.level < entry.logger->level) {
-      skipEntry = true;
+      skip_entry = 1;
     }
     else {
-      skipEntry = false;
+      skip_entry = 0;
       memcpy(
         entry.message,
         s_arch_state.entries[0].message,
@@ -261,20 +269,22 @@ ROUTINE_PRFX routine(ROUTINE_PARAMS) {
     memmove(
       s_arch_state.entries,
       s_arch_state.entries + 1,
-      s_arch_state.entry_count * sizeof(_entry_t)
+      s_arch_state.entry_count * sizeof(_entry)
     );
 
     --s_arch_state.entry_count;
     --entry.logger->entry_count;
 
-    if (!_mutex_unlock(s_arch_state.mutex)) { return NULL; }
+    if (!ut_mutex_unlock(&s_arch_state.mutex))
+      return NULL;
 
     if (
       s_arch_state.entry_count == s_arch_state.max_entry_count - 1 &&
-      !_cond_signal(s_arch_state.cond)
+      !ut_cond_signal(&s_arch_state.cond)
     ) { return NULL; }
 
-    if (!(skipEntry || processEntry(&entry))) { return 0; }
+    if (!(skip_entry || _process_entry(&entry)))
+      return 0;
 
     if (
       entry.logger->destroy_requested &&
@@ -285,7 +295,7 @@ ROUTINE_PRFX routine(ROUTINE_PARAMS) {
     }
   }
 
-  s_arch_state.threadIsAlive = false;
+  s_arch_state.threadIsAlive = 0;
   return NULL;
 }
 
@@ -294,14 +304,12 @@ FILE* _file_create(const char *filename_format, const char *path_format) {
   time_t time_stamp = time(0);
 
   char filename[256];
-  if (!_format_str(filename_format, time_stamp, "", filename, 255)) {
+  if (!_format_str(filename_format, time_stamp, "", filename, 255))
     return NULL;
-  }
   
   char path[256 + 256];
-  if (!_format_str(path_format, time_stamp, "", path, 511)) {
+  if (!_format_str(path_format, time_stamp, "", path, 511))
     return NULL;
-  }
 
   const uint16_t pathLen = strlen(path);
   for (uint16_t i = 0; i < pathLen; ++i) {
@@ -309,9 +317,9 @@ FILE* _file_create(const char *filename_format, const char *path_format) {
 
     path[i] = '\0';
 
-    if (!(_dir_is_exists(path) || _mkdir(path))) {
+    if (!(_is_dir_exists(path) || _mkdir(path)))
       return NULL;
-    }
+
     path[i] = '/';
   }
 
@@ -323,10 +331,15 @@ FILE* _file_create(const char *filename_format, const char *path_format) {
 
 // Used for snprintf calls in _format_str
 #define FORMAT(str, len, fmt, ...) \
-  if (snprintf(str, len, fmt, __VA_ARGS__) < 0) { return false; } \
+  if (snprintf(str, len, fmt, __VA_ARGS__) < 0) { return 0; } \
 
-bool _format_str(const char *format, time_t time, const char *msg,
-                 char *out, size_t size) {
+int _format_str(
+  const char *format,
+  time_t time,
+  const char *msg,
+  char *out,
+  size_t size
+) {
   memcpy(out, format, size);
 
   char tmpStr[size];
@@ -380,6 +393,6 @@ bool _format_str(const char *format, time_t time, const char *msg,
     }
   }
 
-  return true;
+  return 1;
 }
 

@@ -1,13 +1,9 @@
 #include <stdio.h>  // puts
 #include <stdlib.h> // EXIT_SUCCESS, EXIT_FAILURE
 
-#include <arch/arch.h>
+#include <arch.h>
 
 int main(void) {
-  const arch_init_info_t init_info = {
-    .max_entry_count = 8,
-  };
-
   const arch_logger_create_info_t logger_info = {
     .path_format = "./mylogs/",
     .filename_format = "logs.txt",
@@ -30,10 +26,10 @@ int main(void) {
     .level = ARCH_LOG_LEVEL_TRACE,
   };
 
-  arch_init(&init_info);
+  arch_init(8);
 
   // printing messages
-  arch_logger_t *logger, *logger2;
+  arch_logger logger, logger2;
   if (!(
     (logger  = arch_logger_create(&logger_info)) &&
     (logger2 = arch_logger_create(&logger_info))

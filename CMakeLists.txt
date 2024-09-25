@@ -49,9 +49,9 @@ endif()
 
 # ~ platform-specific source files
 if (WIN32)
-  target_sources(archivio PRIVATE ./src/win32.c)
+  target_sources(archivio PUBLIC ./src/win32.c)
 elseif (UNIX)
-  target_sources(archivio PRIVATE ./src/unix.c)
+  target_sources(archivio PUBLIC ./src/unix.c)
 endif()
 
 # ~ example program

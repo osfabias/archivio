@@ -1,0 +1,3 @@
+[submodule "src/uthread"]
+	path = src/uthread
+	url = git@github.com:burs1/uthread.git

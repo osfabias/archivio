@@ -10,21 +10,8 @@
  */
 #pragma once
 
-#include <stdint.h>
 #include <stdarg.h>
-#include <stdbool.h>
-
-/**
- * @brief Archivio initialization info.
- *
- * @var arch_init_info::max_entry_Count
- * The max number of log entries to be stored at once. If the
- * number is 0 the behaviour of the arch_logger_create() function is
- * undefined.
- */
-typedef struct arch_init_info {
-  uint32_t max_entry_count;
-} arch_init_info_t;
+#include <stdint.h>
 
 /**
  * @brief Log level.
@@ -66,7 +53,7 @@ typedef enum arch_log_level {
   ARCH_LOG_LEVEL_FATAL,
 
   ARCH_LOG_LEVEL_MAX_ENUM
-} arch_log_level_t;
+} arch_log_level;
 
 /**
  * @brief Logger creation info.
@@ -101,17 +88,17 @@ typedef enum arch_log_level {
  * the arch_logger_create() function is undefined.
  */
 typedef struct arch_logger_create_info {
-  const char   *path_format;
-  const char   *filename_format;
-  const char   *msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
-  const char   *file_msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
-  arch_log_level_t  level;
+  const char     *path_format;
+  const char     *filename_format;
+  const char     *msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
+  const char     *file_msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
+  arch_log_level level;
 } arch_logger_create_info_t;
 
 /**
  * @brief An Archivio logger.
  */
-typedef struct arch_logger arch_logger_t;
+typedef struct arch_logger* arch_logger;
 
 /**
  * @brief Initializes Archivio.
@@ -124,11 +111,12 @@ typedef struct arch_logger arch_logger_t;
  * functions are called, otherwise the behaviour of the other functions
  * is undefined.
  *
- * @param info A pointer to the arch_init_info_t struct.
+ * @param max_entry_count The max number of log entries to be stored
+ *                        at once.
  *
- * @return Returns true on successful initialization, otherwise returns false.
+ * @return Returns 1 on success, otherwise returns 0.
  */
-bool arch_init(const arch_init_info_t *info);
+int arch_init(int max_entry_count);
 
 /**
  * @brief Terminates Archivio.
@@ -143,10 +131,10 @@ void arch_terminate(void);
 /**
  * @brief Returns whether an Archivio logging routine is alive or not.
  *
- * @return Returns true if the Archivio logging thread is alive, otherwise
- *         returns false.
+ * @return Returns 1 if the Archivio logging thread is alive, otherwise
+ *         returns 0.
  */
-bool arch_is_alive(void);
+int arch_is_alive(void);
 
 /**
  * @brief Creates an Archivio logger instance.
@@ -155,7 +143,7 @@ bool arch_is_alive(void);
  *
  * @return Returns a pointer to an Archivio logger instance.
  */
-arch_logger_t* arch_logger_create(const arch_logger_create_info_t *info);
+arch_logger arch_logger_create(const arch_logger_create_info_t *info);
 
 /**
  * @brief Destroys logger.
@@ -167,7 +155,7 @@ arch_logger_t* arch_logger_create(const arch_logger_create_info_t *info);
  *               passed pointer wasn't returned by the arch_logger_create()
  *               function, the behaviour is undefined.
  */
-void arch_logger_destroy(arch_logger_t *logger);
+void arch_logger_destroy(arch_logger logger);
 
 /**
  * @brief Logs a message.
@@ -183,11 +171,11 @@ void arch_logger_destroy(arch_logger_t *logger);
  * @param msg    A pointer to a sequence of characters to print.
  * @param ...    Variadic arguments.
  *
- * @return Returns true if log entry was successfully written,
- *         otherwise returns false.
+ * @return Returns 1 if log entry was successfully written,
+ *         otherwise returns 0.
  */
-bool arch_log(arch_logger_t *logger, arch_log_level_t level,
-              const char *msg, ...);
+int arch_log(arch_logger logger, arch_log_level level,
+             const char *msg, ...);
 
 /**
  * @brief Logs a message.
@@ -204,9 +192,9 @@ bool arch_log(arch_logger_t *logger, arch_log_level_t level,
  * @param msg    A pointer to a c-string to log.
  * @param valist List of variadic arguments.
  *
- * @return Returns true if log entry was successfully written,
- *         otherwise returns false.
+ * @return Returns 1 if log entry was successfully written,
+ *         otherwise returns 0.
  */
-bool arch_logvl(arch_logger_t *logger, arch_log_level_t level,
-                const char *msg, va_list valist);
+int arch_logvl(arch_logger logger, arch_log_level level,
+               const char *msg, va_list valist);
 
