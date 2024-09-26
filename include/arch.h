@@ -11,7 +11,6 @@
 #pragma once
 
 #include <stdarg.h>
-#include <stdint.h>
 
 /**
  * @brief Log level.
@@ -53,7 +52,7 @@ typedef enum arch_log_level {
   ARCH_LOG_LEVEL_FATAL,
 
   ARCH_LOG_LEVEL_MAX_ENUM
-} arch_log_level;
+} arch_log_level_t;
 
 /**
  * @brief Logger creation info.
@@ -88,17 +87,17 @@ typedef enum arch_log_level {
  * the arch_logger_create() function is undefined.
  */
 typedef struct arch_logger_create_info {
-  const char     *path_format;
-  const char     *filename_format;
-  const char     *msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
-  const char     *file_msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
-  arch_log_level level;
+  const char      *path_format;
+  const char      *filename_format;
+  const char      *msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
+  const char      *file_msg_formats[ARCH_LOG_LEVEL_MAX_ENUM];
+  arch_log_level_t level;
 } arch_logger_create_info_t;
 
 /**
  * @brief An Archivio logger.
  */
-typedef struct arch_logger* arch_logger;
+typedef struct arch_logger* arch_logger_t;
 
 /**
  * @brief Initializes Archivio.
@@ -143,7 +142,7 @@ int arch_is_alive(void);
  *
  * @return Returns a pointer to an Archivio logger instance.
  */
-arch_logger arch_logger_create(const arch_logger_create_info_t *info);
+arch_logger_t arch_logger_create(const arch_logger_create_info_t *info);
 
 /**
  * @brief Destroys logger.
@@ -155,7 +154,7 @@ arch_logger arch_logger_create(const arch_logger_create_info_t *info);
  *               passed pointer wasn't returned by the arch_logger_create()
  *               function, the behaviour is undefined.
  */
-void arch_logger_destroy(arch_logger logger);
+void arch_logger_destroy(arch_logger_t logger);
 
 /**
  * @brief Logs a message.
@@ -174,7 +173,7 @@ void arch_logger_destroy(arch_logger logger);
  * @return Returns 1 if log entry was successfully written,
  *         otherwise returns 0.
  */
-int arch_log(arch_logger logger, arch_log_level level,
+int arch_log(arch_logger_t logger, arch_log_level_t level,
              const char *msg, ...);
 
 /**
@@ -195,6 +194,6 @@ int arch_log(arch_logger logger, arch_log_level level,
  * @return Returns 1 if log entry was successfully written,
  *         otherwise returns 0.
  */
-int arch_logvl(arch_logger logger, arch_log_level level,
+int arch_logvl(arch_logger_t logger, arch_log_level_t level,
                const char *msg, va_list valist);
 

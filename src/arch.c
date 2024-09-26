@@ -25,13 +25,13 @@
 
 typedef struct _entry {
   struct arch_logger *logger;
-  arch_log_level      level;
+  arch_log_level_t    level;
   char                message[MAX_MESSAGE_LENGTH];
   time_t              time;
 } _entry;
 
 struct arch_logger {
-  arch_log_level level;
+  arch_log_level_t level;
 
   char msg_formats[ARCH_LOG_LEVEL_MAX_ENUM][MAX_MESSAGE_LENGTH];
   char file_msg_formats[ARCH_LOG_LEVEL_MAX_ENUM][MAX_MESSAGE_LENGTH];
@@ -42,16 +42,16 @@ struct arch_logger {
 };
 
 static struct {
-  uint8_t max_entry_count;
-  uint8_t entry_count;
-  _entry  *entries;
+  int     max_entry_count;
+  int     entry_count;
+  _entry *entries;
 
   ut_mutex_t  mutex;
   ut_cond_t   cond;
   ut_thread_t thread;
 
-  int threadIsAlive;
-  int _thread_killRequested;
+  int thread_is_alive;
+  int thread_kill_requested;
 } s_arch_state;
 
 UT_ROUTINE_RETURN_TYPE routine(void *arg);
@@ -59,7 +59,7 @@ UT_ROUTINE_RETURN_TYPE routine(void *arg);
 FILE* _file_create(const char *filename_format, const char *path_format);
 
 int _format_str(const char *format, time_t time, const char *msg,
-                  char *out, size_t size);
+                char *out, size_t size);
 
 int arch_init(int max_entry_count) {
   s_arch_state.entry_count     = 0;
@@ -75,8 +75,8 @@ int arch_init(int max_entry_count) {
     goto FAIL_THREAD;
   }
 
-  s_arch_state._thread_killRequested = 0;
-  s_arch_state.threadIsAlive       = 1;
+  s_arch_state.thread_kill_requested = 0;
+  s_arch_state.thread_is_alive       = 1;
 
   return 1;
 FAIL_THREAD:  ut_thread_kill(s_arch_state.thread);
@@ -87,7 +87,7 @@ FAIL_ENTRIES: free(s_arch_state.entries);
 }
 
 void arch_terminate(void) {
-  s_arch_state._thread_killRequested = 1;
+  s_arch_state.thread_kill_requested = 1;
 
   if (
     s_arch_state.entry_count == 0 &&
@@ -121,7 +121,7 @@ struct arch_logger* arch_logger_create(
     return NULL;
   }
 
-  for (uint_fast8_t i = 0; i < ARCH_LOG_LEVEL_MAX_ENUM; ++i) {
+  for (int i = 0; i < ARCH_LOG_LEVEL_MAX_ENUM; ++i) {
     memcpy(
       logger->file_msg_formats[i],
       info->file_msg_formats[i],
@@ -130,7 +130,7 @@ struct arch_logger* arch_logger_create(
   }
 
 SKIP_FILE_CREATION:
-  for (uint_fast8_t i = 0; i < ARCH_LOG_LEVEL_MAX_ENUM; ++i) {
+  for (int i = 0; i < ARCH_LOG_LEVEL_MAX_ENUM; ++i) {
     memcpy(
       logger->msg_formats[i],
       info->msg_formats[i],
@@ -146,14 +146,14 @@ SKIP_FILE_CREATION:
 }
 
 int arch_is_alive(void) {
-  return s_arch_state.threadIsAlive;
+  return s_arch_state.thread_is_alive;
 }
 
 void arch_logger_destroy(struct arch_logger* logger) {
   logger->destroy_requested = 1;
 }
 
-int arch_log(struct arch_logger *logger, arch_log_level level,
+int arch_log(struct arch_logger *logger, arch_log_level_t level,
              const char *msg, ...) {
   va_list valist;
 
@@ -164,7 +164,7 @@ int arch_log(struct arch_logger *logger, arch_log_level level,
   return res;
 }
 
-int arch_logvl(struct arch_logger *logger, arch_log_level level,
+int arch_logvl(struct arch_logger *logger, arch_log_level_t level,
                const char *msg, va_list valist) {
   if (!ut_mutex_lock(&s_arch_state.mutex)) { return 0; }
 
@@ -241,14 +241,14 @@ UT_ROUTINE_RETURN_TYPE routine(void *arg) {
       return NULL;
 
     if (s_arch_state.entry_count == 0) {
-      if (s_arch_state._thread_killRequested) { break; }
+      if (s_arch_state.thread_kill_requested) { break; }
 
       if (!ut_cond_wait(&s_arch_state.cond, &s_arch_state.mutex))
         return NULL;
 
       if (
         s_arch_state.entry_count == 0 &&
-        s_arch_state._thread_killRequested
+        s_arch_state.thread_kill_requested
       ) { break; }
     }
 
@@ -295,7 +295,7 @@ UT_ROUTINE_RETURN_TYPE routine(void *arg) {
     }
   }
 
-  s_arch_state.threadIsAlive = 0;
+  s_arch_state.thread_is_alive = 0;
   return NULL;
 }
 

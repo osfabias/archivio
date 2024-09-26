@@ -29,7 +29,7 @@ int main(void) {
   arch_init(8);
 
   // printing messages
-  arch_logger logger, logger2;
+  arch_logger_t logger, logger2;
   if (!(
     (logger  = arch_logger_create(&logger_info)) &&
     (logger2 = arch_logger_create(&logger_info))
