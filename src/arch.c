@@ -8,6 +8,7 @@
  * @copyright Copyright (c) 2023-2024 Osfabias
  * @license Licensed under the Apache License, Version 2.0.
  */
+#include <signal.h>
 #include <time.h>   // time_t, time()
 #include <stdio.h>  // file i/o, snprintf()
 #include <stdarg.h> // va_list and va_*() functions
@@ -15,8 +16,8 @@
 #include <stdlib.h> // malloc, free
 
 #include "arch.h"
+#include "uthread.h"
 #include "internal.h"
-#include "uthread/uthread.h"
 
 #define DEFAULT_PATH_FORMAT "./logs/"
 
