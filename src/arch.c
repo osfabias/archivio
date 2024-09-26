@@ -55,12 +55,17 @@ static struct {
   int thread_kill_requested;
 } s_arch_state;
 
-UT_ROUTINE_RETURN_TYPE routine(void *arg);
+static UT_ROUTINE_RETURN_TYPE _loging_routine(void *arg);
 
-FILE* _file_create(const char *filename_format, const char *path_format);
+static FILE* _file_create(const char *filename_format, const char *path_format);
 
-int _format_str(const char *format, time_t time, const char *msg,
-                char *out, size_t size);
+static int _format_str(
+  const char *format,
+  time_t time,
+  const char *msg,
+  char *out,
+  size_t size
+);
 
 int arch_init(int max_entry_count) {
   s_arch_state.entry_count     = 0;
@@ -72,7 +77,7 @@ int arch_init(int max_entry_count) {
   if (!ut_cond_create(&s_arch_state.cond))   { goto FAIL_COND; }
   if (!ut_mutex_create(&s_arch_state.mutex)) { goto FAIL_MUTEX;  }
 
-  if (!ut_thread_create(&s_arch_state.thread, routine, NULL)) {
+  if (!ut_thread_create(&s_arch_state.thread, _loging_routine, NULL)) {
     goto FAIL_THREAD;
   }
 
@@ -230,7 +235,7 @@ int _process_entry(_entry *e) {
   return 1;
 }
 
-UT_ROUTINE_RETURN_TYPE routine(void *arg) {
+UT_ROUTINE_RETURN_TYPE _loging_routine(void *arg) {
   // suppress "Unused parameter" compiler warning
   (void)(arg);
 
