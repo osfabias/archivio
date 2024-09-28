@@ -1,13 +1,13 @@
-#include <stdio.h>  // puts
-#include <stdlib.h> // EXIT_SUCCESS, EXIT_FAILURE
+#include <stdio.h>
+#include <stdlib.h>
 
 #include <arch.h>
 
 int main(void) {
   const arch_logger_create_info_t logger_info = {
-    .path_format = "./mylogs/",
-    .filename_format = "logs.txt",
-    .msg_formats = {
+    .path_fmt = "./mylogs/",
+    .filename_fmt = "logs.txt",
+    .msg_fmts = {
       "\e[36m ~ \e[37;3m#t#}\n",
       "\e[34m ℹ#} #t\n",
       "\e[32m ✓#} #t\n",
@@ -15,7 +15,7 @@ int main(void) {
       "\e[31m ✗#} #t\n",
       "\n\e[37m[#h:#m:#s]#} \e[1;97;41m  FATAL  #} #t\n\n",
     },
-    .file_msg_formats = {
+    .file_msg_fmts = {
       "#h:#m:#s | TRACE | #t\n",
       "#h:#m:#s | DEBUG | #t\n",
       "#h:#m:#s | INFO  | #t\n",
@@ -25,8 +25,6 @@ int main(void) {
     },
     .level = ARCH_LOG_LEVEL_TRACE,
   };
-
-  arch_init(8);
 
   // printing messages
   arch_logger_t logger, logger2;
@@ -45,8 +43,6 @@ int main(void) {
 
   arch_logger_destroy(logger);
   arch_logger_destroy(logger2);
-
-  arch_terminate();
 
   return EXIT_SUCCESS;
 }

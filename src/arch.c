@@ -8,7 +8,6 @@
  * @copyright Copyright (c) 2023-2024 Osfabias
  * @license Licensed under the Apache License, Version 2.0.
  */
-#include <signal.h>
 #include <time.h>   // time_t, time()
 #include <stdio.h>  // file i/o, snprintf()
 #include <stdarg.h> // va_list and va_*() functions
@@ -19,10 +18,10 @@
 #include "uthread.h"
 #include "internal.h"
 
-#define DEFAULT_PATH_FORMAT "./logs/"
-
 // NOTE: The maximum size of the message is affecting the performance.
-#define MAX_MESSAGE_LENGTH 512
+#define MAX_MESSAGE_LENGTH 1024
+
+#define MAX_ENTRY_COUNT 8
 
 typedef struct _entry {
   struct arch_logger *logger;
@@ -34,8 +33,8 @@ typedef struct _entry {
 struct arch_logger {
   arch_log_level_t level;
 
-  char msg_formats[ARCH_LOG_LEVEL_MAX_ENUM][MAX_MESSAGE_LENGTH];
-  char file_msg_formats[ARCH_LOG_LEVEL_MAX_ENUM][MAX_MESSAGE_LENGTH];
+  char msg_fmts[ARCH_LOG_LEVEL_MAX_ENUM][MAX_MESSAGE_LENGTH];
+  char file_msg_fmts[ARCH_LOG_LEVEL_MAX_ENUM][MAX_MESSAGE_LENGTH];
   FILE *fd;
 
   int entry_count;
@@ -43,9 +42,10 @@ struct arch_logger {
 };
 
 static struct {
-  int     max_entry_count;
-  int     entry_count;
-  _entry *entries;
+  int logger_count;
+
+  int    entry_count;
+  _entry entries[MAX_ENTRY_COUNT];
 
   ut_mutex_t  mutex;
   ut_cond_t   cond;
@@ -53,46 +53,43 @@ static struct {
 
   int thread_is_alive;
   int thread_kill_requested;
-} s_arch_state;
+} s_arch_state = { .thread_is_alive = 0 };
 
-static UT_ROUTINE_RETURN_TYPE _loging_routine(void *arg);
+static UT_ROUTINE_RETURN_TYPE _logging_routine(void *arg);
 
-static FILE* _file_create(const char *filename_format, const char *path_format);
-
-static int _format_str(
-  const char *format,
-  time_t time,
-  const char *msg,
-  char *out,
-  size_t size
+static FILE* _file_create(
+  const char *filename_fmt,
+  const char *path_fmt
 );
 
-int arch_init(int max_entry_count) {
-  s_arch_state.entry_count     = 0;
-  s_arch_state.max_entry_count = max_entry_count;
+static int _fmt_str(
+  const char *fmt,
+  time_t      time,
+  const char *msg,
+  char       *out,
+  size_t      size
+);
 
-  s_arch_state.entries = malloc(sizeof(_entry) * max_entry_count);
-  if (!s_arch_state.entries) { goto FAIL_ENTRIES; }
+int _init(void) {
+  s_arch_state.entry_count = 0;
 
-  if (!ut_cond_create(&s_arch_state.cond))   { goto FAIL_COND; }
-  if (!ut_mutex_create(&s_arch_state.mutex)) { goto FAIL_MUTEX;  }
+  if (!ut_cond_create(&s_arch_state.cond))   goto FAIL_COND;
+  if (!ut_mutex_create(&s_arch_state.mutex)) goto FAIL_MUTEX;
 
-  if (!ut_thread_create(&s_arch_state.thread, _loging_routine, NULL)) {
+  if (!ut_thread_create(&s_arch_state.thread, _logging_routine, NULL))
     goto FAIL_THREAD;
-  }
 
   s_arch_state.thread_kill_requested = 0;
   s_arch_state.thread_is_alive       = 1;
 
   return 1;
-FAIL_THREAD:  ut_thread_kill(s_arch_state.thread);
-FAIL_MUTEX:   ut_mutex_destroy(&s_arch_state.mutex);
-FAIL_COND:    ut_cond_destroy(&s_arch_state.cond);
-FAIL_ENTRIES: free(s_arch_state.entries);
+FAIL_THREAD: ut_thread_kill(s_arch_state.thread);
+FAIL_MUTEX:  ut_mutex_destroy(&s_arch_state.mutex);
+FAIL_COND:   ut_cond_destroy(&s_arch_state.cond);
   return 0;
 }
 
-void arch_terminate(void) {
+void _quit(void) {
   s_arch_state.thread_kill_requested = 1;
 
   if (
@@ -100,7 +97,8 @@ void arch_terminate(void) {
     !ut_cond_signal(&s_arch_state.cond)
   ) { return; }
 
-  if (!ut_thread_wait(s_arch_state.thread)) { return; }
+  if (!ut_thread_wait(s_arch_state.thread))
+    return;
 
   ut_cond_destroy(&s_arch_state.cond);
   ut_mutex_destroy(&s_arch_state.mutex);
@@ -113,54 +111,49 @@ struct arch_logger* arch_logger_create(
   const arch_logger_create_info_t *info
 ) {
   struct arch_logger *logger = malloc(sizeof(struct arch_logger));
-  if (!logger) { return NULL; }
+  if (!logger)
+    return NULL;
 
-  if (!info->filename_format) { goto SKIP_FILE_CREATION; }
+  /************************ file creation ***********************/
+  if (!info->filename_fmt)
+    goto SKIP_FILE_CREATION;
 
-  logger->fd= _file_create(
-    info->filename_format,
-    info->path_format ? info->path_format : DEFAULT_PATH_FORMAT
-  );
+  logger->fd= _file_create(info->filename_fmt, info->path_fmt);
 
   if (!logger->fd) {
     free(logger);
     return NULL;
   }
 
-  for (int i = 0; i < ARCH_LOG_LEVEL_MAX_ENUM; ++i) {
+  for (int i = 0; i < ARCH_LOG_LEVEL_MAX_ENUM; ++i)
     memcpy(
-      logger->file_msg_formats[i],
-      info->file_msg_formats[i],
+      logger->file_msg_fmts[i], info->file_msg_fmts[i],
       MAX_MESSAGE_LENGTH
     );
-  }
-
+  /************************ file creation ***********************/
 SKIP_FILE_CREATION:
-  for (int i = 0; i < ARCH_LOG_LEVEL_MAX_ENUM; ++i) {
-    memcpy(
-      logger->msg_formats[i],
-      info->msg_formats[i],
-      MAX_MESSAGE_LENGTH
-    );
-  }
+  for (int i = 0; i < ARCH_LOG_LEVEL_MAX_ENUM; ++i)
+    memcpy(logger->msg_fmts[i], info->msg_fmts[i], MAX_MESSAGE_LENGTH);
 
   logger->entry_count       = 0;
   logger->destroy_requested = 0;
   logger->level             = info->level;
 
-  return logger;
-}
+  ++s_arch_state.logger_count;
+  if (s_arch_state.logger_count == 1)
+    _init();
 
-int arch_is_alive(void) {
-  return s_arch_state.thread_is_alive;
+  return logger;
 }
 
 void arch_logger_destroy(struct arch_logger* logger) {
   logger->destroy_requested = 1;
 }
 
-int arch_log(struct arch_logger *logger, arch_log_level_t level,
-             const char *msg, ...) {
+int arch_log(
+  struct arch_logger *logger, arch_log_level_t level,
+  const char *msg, ...
+) {
   va_list valist;
 
   va_start(valist, msg);
@@ -170,14 +163,17 @@ int arch_log(struct arch_logger *logger, arch_log_level_t level,
   return res;
 }
 
-int arch_logvl(struct arch_logger *logger, arch_log_level_t level,
-               const char *msg, va_list valist) {
-  if (!ut_mutex_lock(&s_arch_state.mutex)) { return 0; }
+int arch_logvl(
+  struct arch_logger *logger, arch_log_level_t level,
+  const char *msg, va_list valist
+) {
+  if (!ut_mutex_lock(&s_arch_state.mutex))
+    return 0;
 
   if (
-    s_arch_state.entry_count == s_arch_state.max_entry_count &&
+    s_arch_state.entry_count == MAX_ENTRY_COUNT &&
     !ut_cond_wait(&s_arch_state.cond, &s_arch_state.mutex)
-  ) { return 0; }
+  ) return 0;
 
   _entry *entry  = s_arch_state.entries + s_arch_state.entry_count;
   entry->level   = level;
@@ -185,19 +181,20 @@ int arch_logvl(struct arch_logger *logger, arch_log_level_t level,
 
   // TODO: Figure out how to copy data from va_list
   // for future use (not pointers)
-  char formattedMessage[MAX_MESSAGE_LENGTH];
-  if (vsnprintf(formattedMessage, MAX_MESSAGE_LENGTH, msg, valist) < 0) {
+  char out_msg[MAX_MESSAGE_LENGTH];
+  if (vsnprintf(out_msg, MAX_MESSAGE_LENGTH, msg, valist) < 0)
     return 0;
-  }
-  memcpy(entry->message, formattedMessage, MAX_MESSAGE_LENGTH);
+
+  memcpy(entry->message, out_msg, MAX_MESSAGE_LENGTH);
 
   // later destrloyed in logging cycle after processing entry
-  entry->time = time(0);
+  entry->time = time(NULL);
 
   ++logger->entry_count;
   ++s_arch_state.entry_count;
 
-  if (!ut_mutex_unlock(&s_arch_state.mutex)) { return 0; }
+  if (!ut_mutex_unlock(&s_arch_state.mutex))
+    return 0;
 
   if (
     s_arch_state.entry_count == 1 &&
@@ -208,34 +205,37 @@ int arch_logvl(struct arch_logger *logger, arch_log_level_t level,
 }
 
 int _process_entry(_entry *e) {
-  char outMessage[MAX_MESSAGE_LENGTH];
-  if (!_format_str(
-    e->logger->msg_formats[e->level],
-    e->time,
-    e->message,
-    outMessage,
-    MAX_MESSAGE_LENGTH
-  )) { return 0; }
-
-  if (fputs(outMessage, stdout) == EOF) { return 0; }
-
-  if (e->logger->fd) {
-    char outMessage[MAX_MESSAGE_LENGTH];
-    if (!_format_str(
-      e->logger->file_msg_formats[e->level],
+  char out_msg[MAX_MESSAGE_LENGTH];
+  if (
+    !_fmt_str(
+      e->logger->msg_fmts[e->level],
       e->time,
       e->message,
-      outMessage,
+      out_msg,
+      MAX_MESSAGE_LENGTH
+    )
+  ) { return 0; }
+
+  if (fputs(out_msg, stdout) == EOF) { return 0; }
+
+  if (e->logger->fd) {
+    char out_msg[MAX_MESSAGE_LENGTH];
+    if (!_fmt_str(
+      e->logger->file_msg_fmts[e->level],
+      e->time,
+      e->message,
+      out_msg,
       MAX_MESSAGE_LENGTH
     )) { return 0; }
 
-    if (fputs(outMessage, e->logger->fd) == EOF) { return 0; }
+    if (fputs(out_msg, e->logger->fd) == EOF)
+      return 0;
   }
 
   return 1;
 }
 
-UT_ROUTINE_RETURN_TYPE _loging_routine(void *arg) {
+UT_ROUTINE_RETURN_TYPE _logging_routine(void *arg) {
   // suppress "Unused parameter" compiler warning
   (void)(arg);
 
@@ -285,7 +285,7 @@ UT_ROUTINE_RETURN_TYPE _loging_routine(void *arg) {
       return NULL;
 
     if (
-      s_arch_state.entry_count == s_arch_state.max_entry_count - 1 &&
+      s_arch_state.entry_count == MAX_ENTRY_COUNT - 1 &&
       !ut_cond_signal(&s_arch_state.cond)
     ) { return NULL; }
 
@@ -298,6 +298,9 @@ UT_ROUTINE_RETURN_TYPE _loging_routine(void *arg) {
     ) {
       fclose(entry.logger->fd); // don't care about return code
       free(entry.logger);
+
+      if (--s_arch_state.logger_count == 0)
+        break;
     }
   }
 
@@ -305,16 +308,16 @@ UT_ROUTINE_RETURN_TYPE _loging_routine(void *arg) {
   return NULL;
 }
 
-FILE* _file_create(const char *filename_format, const char *path_format) {
+FILE* _file_create(const char *filename_fmt, const char *path_fmt) {
   FILE *file;
   time_t time_stamp = time(0);
 
   char filename[256];
-  if (!_format_str(filename_format, time_stamp, "", filename, 255))
+  if (!_fmt_str(filename_fmt, time_stamp, "", filename, 255))
     return NULL;
   
   char path[256 + 256];
-  if (!_format_str(path_format, time_stamp, "", path, 511))
+  if (!_fmt_str(path_fmt, time_stamp, "", path, 511))
     return NULL;
 
   const uint16_t pathLen = strlen(path);
@@ -335,18 +338,18 @@ FILE* _file_create(const char *filename_format, const char *path_format) {
   return file;
 }
 
-// Used for snprintf calls in _format_str
-#define FORMAT(str, len, fmt, ...) \
-  if (snprintf(str, len, fmt, __VA_ARGS__) < 0) { return 0; } \
+// Used for snprintf calls in _fmt_str
+#define fmt(str, len, fmt, ...) \
+  if (snprintf(str, len, fmt, __VA_ARGS__) < 0) { return 0; }
 
-int _format_str(
-  const char *format,
+int _fmt_str(
+  const char *fmt,
   time_t time,
   const char *msg,
   char *out,
   size_t size
 ) {
-  memcpy(out, format, size);
+  memcpy(out, fmt, size);
 
   char tmpStr[size];
 
@@ -362,38 +365,38 @@ int _format_str(
     out[++i] = 's';
     switch (specifier) {
       case 's': // seconds
-        FORMAT(tmpStr, size, out, "%02d")
-        FORMAT(out, size, tmpStr, timeInfo->tm_sec);
+        fmt(tmpStr, size, out, "%02d")
+        fmt(out, size, tmpStr, timeInfo->tm_sec);
         break;
       case 'm': // minutes
-        FORMAT(tmpStr, size, out, "%02d"); 
-        FORMAT(out, size, tmpStr, timeInfo->tm_min);
+        fmt(tmpStr, size, out, "%02d"); 
+        fmt(out, size, tmpStr, timeInfo->tm_min);
         break;
       case 'h': // hours
-        FORMAT(tmpStr, size, out, "%02d"); 
-        FORMAT(out, size, tmpStr, timeInfo->tm_hour);
+        fmt(tmpStr, size, out, "%02d"); 
+        fmt(out, size, tmpStr, timeInfo->tm_hour);
         break;
       case 'd': // days
-        FORMAT(tmpStr, size, out, "%02d"); 
-        FORMAT(out, size, tmpStr, timeInfo->tm_mday);
+        fmt(tmpStr, size, out, "%02d"); 
+        fmt(out, size, tmpStr, timeInfo->tm_mday);
         break;
       case 'M': // month
-        FORMAT(tmpStr, size, out, "%02d"); 
-        FORMAT(out, size, tmpStr, timeInfo->tm_mon); 
+        fmt(tmpStr, size, out, "%02d"); 
+        fmt(out, size, tmpStr, timeInfo->tm_mon); 
         break;
       case 'y': // year
-        FORMAT(tmpStr, size, out, "%d"); 
-        // adding 1900 because tmFORMATyear represent a number
+        fmt(tmpStr, size, out, "%d"); 
+        // adding 1900 because tmfmtyear represent a number
         // of years passed since 1900
-        FORMAT(out, size, tmpStr, timeInfo->tm_year + 1900);
+        fmt(out, size, tmpStr, timeInfo->tm_year + 1900);
         break;
       case '}': // reset style
         memcpy(tmpStr, out, size);
-        FORMAT(out, size, tmpStr, "\033[0m");
+        fmt(out, size, tmpStr, "\033[0m");
         break;
       case 't':
         memcpy(tmpStr, out, size);
-        FORMAT(out, size, tmpStr, msg);
+        fmt(out, size, tmpStr, msg);
         break;
       default: { out[i] = 'n'; }
     }
