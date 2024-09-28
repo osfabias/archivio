@@ -89,24 +89,6 @@ FAIL_COND:   ut_cond_destroy(&s_arch_state.cond);
   return 0;
 }
 
-void _quit(void) {
-  s_arch_state.thread_kill_requested = 1;
-
-  if (
-    s_arch_state.entry_count == 0 &&
-    !ut_cond_signal(&s_arch_state.cond)
-  ) { return; }
-
-  if (!ut_thread_wait(s_arch_state.thread))
-    return;
-
-  ut_cond_destroy(&s_arch_state.cond);
-  ut_mutex_destroy(&s_arch_state.mutex);
-  ut_thread_kill(s_arch_state.thread);
-
-  free(s_arch_state.entries);
-}
-
 struct arch_logger* arch_logger_create(
   const arch_logger_create_info_t *info
 ) {
